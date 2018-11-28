@@ -2,6 +2,7 @@
 #include "Vector3.h"
 #include "Vector2.h"
 #include "Lighting.h"
+#include <vector>
 using namespace std;
 
 struct Eye
@@ -81,9 +82,12 @@ struct Triangle
 int RenderImage(const char* fileName, PPM ppm);
 double deg2rad(double degrees);
 bool RayTriangleIntersect(Ray ray, Triangle tri, Vector3<float>& hitPoint, Vector3<float>& outNorm, Vector3<float>& outBary);
+Vector3<float> GetBaryCoords(Triangle& tri, Vector3<float>& o);
 //Variables
 Vector2<int> imageSize = Vector2<int>(512, 512);
 Vector3<int> imageColour = Vector3<int>(255, 255, 192);
+vector<Triangle> Triangles;
+
 
 float clampFloat(float N, float minN, float maxN)
 {
@@ -108,7 +112,19 @@ int main()
 	cout << "Hello RayTracer!" << endl;
 
 	Eye camera;
-	Triangle test;
+	Triangles.push_back(Triangle());
+	//Floor
+	Vector3<float> A = Vector3<float>(-350, -20, 0);
+	Vector3<float> B = Vector3<float>(350, -20, 0);
+	Vector3<float> C = Vector3<float>(-350, -21, 500);
+	Vector3<float> D = Vector3<float>(350, -21, 500);
+	Triangle left = Triangle(A, D, C);
+	left.Mat.Shininess = 32.0f;
+	Triangle right = Triangle(A, B, D);
+	right.Mat.Shininess = 32.0f;
+	Triangles.push_back(left);
+	Triangles.push_back(right);
+
 	PointLight light;
 	PPM image = PPM("P3", imageSize.x, imageSize.y, 255);
 	float aspect = imageSize.x / imageSize.y;
@@ -132,40 +148,81 @@ int main()
 			Ray ray = Ray(camera.position, (viewPoint - camera.position), 100.0f);
 
 
-			Vector3<float> bary = Vector3<float>(0, 0, 0);
-			Vector3<float> hitPoint = Vector3<float>(0, 0, 0);
-			Vector3<float> triNorm = Vector3<float>(0, 0, 0);
-			if (RayTriangleIntersect(ray, test, hitPoint, triNorm, bary))
+			double fragDist = 9999999;
+			Triangle* tri = nullptr;
+			Vector3<float> closeBary = Vector3<float>(0, 0, 0);
+			Vector3<float> closeHitPoint = Vector3<float>(0, 0, 0);
+			Vector3<float> closeTriNorm = Vector3<float>(0, 0, 0);
+			for (unsigned int t = 0; t < Triangles.size(); t++)
 			{
-				Vector3<float> colour = AmbientColour * AmbientIntensity;// Vector3<float>(test.Ac * bary.x + test.Bc * bary.y + test.Cc * bary.z);
-				Vector3<float> lightVec = (light.Position - hitPoint);
+				Vector3<float> bary = Vector3<float>(0, 0, 0);
+				Vector3<float> hitPoint = Vector3<float>(0, 0, 0);
+				Vector3<float> triNorm = Vector3<float>(0, 0, 0);
+				if (RayTriangleIntersect(ray, Triangles[t], hitPoint, triNorm, bary))
+				{
+					Vector3<float> hitVec = hitPoint - camera.position;
+					float dist = hitVec.Magnitude();
+					if (dist < fragDist)
+					{
+						fragDist = dist;
+						closeBary = bary;
+						closeHitPoint = hitPoint;
+						closeTriNorm = triNorm;
+						tri = &Triangles[t];
+					}
+				}
+			}
+
+			if (tri != nullptr)
+			{
+				Vector3<float> Ambient = (AmbientColour*AmbientIntensity);
+				Vector3<float> colour = Ambient;// Vector3<float>(test.Ac * bary.x + test.Bc * bary.y + test.Cc * bary.z);
+				Vector3<float> lightVec = (closeHitPoint - light.Position);
+
 				float dist = lightVec.Magnitude();
 				lightVec = lightVec / dist;
 
-				float lambertian = lightVec.Dot(triNorm);
-				lambertian = clampFloat(lambertian, 0, lambertian);
-				double spec = 0.0;
-
-				if (lambertian > 0.0f)
+				Vector3<float> shadowVec = (light.Position - closeHitPoint);
+				shadowVec = shadowVec / shadowVec.Magnitude();
+				Ray shadowRay = Ray(closeHitPoint, shadowVec, 100.f);
+				bool shadow = false;
+				for (unsigned int t = 0; t < Triangles.size(); t++)
 				{
-					Vector3<float> lightVec = (hitPoint - camera.position);
+					if (tri == &Triangles[t]) continue;
 
-					Vector3<float> halfVec = (light.Position - lightVec)/2;
-					halfVec = halfVec / halfVec.Magnitude();
-					float specAngle = halfVec.Dot(triNorm);
-					specAngle = clampFloat(specAngle, 0, specAngle);
-					spec = pow(specAngle, test.Mat.Shininess);
+					Vector3<float> bary = Vector3<float>(0, 0, 0);
+					Vector3<float> hitPoint = Vector3<float>(0, 0, 0);
+					Vector3<float> triNorm = Vector3<float>(0, 0, 0);
+					if (RayTriangleIntersect(shadowRay, Triangles[t], hitPoint, triNorm, bary))
+					{
+						shadow = true;
+						break;
+					}
 				}
+				if (!shadow)
+				{
 
-				Vector3<float> Ambient = (AmbientColour*AmbientIntensity);
-				Vector3<float> Diffuse = (test.Mat.dColour * lambertian * light.LightColour * light.Intensity);
-				Vector3<float> Specular = (test.Mat.sColour * spec * light.LightColour * light.Intensity);
+					double lambertian = lightVec.Dot(closeTriNorm);
+					lambertian = clampFloat(lambertian, 0, lambertian);
+					double spec = 0.0;
 
-				if (spec > 0.000001)
-					cout << "yay" << endl;
+					if (lambertian > 0.0f)
+					{
+						Vector3<float> viewVec = (closeHitPoint);
 
-				colour = Ambient + Diffuse + Specular;
+						Vector3<float> halfVec = (light.Position - viewVec) / 2;
+						halfVec = halfVec / halfVec.Magnitude();
+						float specAngle = halfVec.Dot(-closeTriNorm);
+						specAngle = clampFloat(specAngle, 0, specAngle);
+						spec = pow(specAngle, tri->Mat.Shininess);
+					}
 
+
+					Vector3<float> Diffuse = (tri->Mat.dColour * lambertian * light.LightColour * light.Intensity);
+					Vector3<float> Specular = (tri->Mat.sColour * spec * light.LightColour * light.Intensity);
+					//if(dist < light.Radius)
+						colour += Diffuse + Specular;
+				}
 				colour *= 255;
 				
 				image.values[j][i].x = clampInt(colour.x, 0, 255);
@@ -224,14 +281,25 @@ bool RayTriangleIntersect(Ray ray, Triangle tri, Vector3<float>& hitPoint, Vecto
 
 	Vector3<float> sPrime = Vector3<float>(ray.origin - tri.A);
 	Vector3<float> lPrime = Vector3<float>(ray.direction.Dot(U), ray.direction.Dot(W), ray.direction.Dot(N));
+	//if (lPrime.z < 0) return false;
 
 	float sn = sPrime.Dot(N);
 	float t = sn / lPrime.z;
 	Vector3<float> o = ray.origin + ray.direction*fabs(t);
-
-	o = o - tri.A;
 	hitPoint = o;
+	o = o - tri.A;
+	
 
+	outBary = GetBaryCoords(tri, o);
+
+	if (outBary.x > 1.0f || outBary.y > 1.0f || outBary.z > 1.0f || outBary.x < 0.0f || outBary.y < 0.0f || outBary.z < 0.0f) 
+		return false;
+
+	return true;
+}
+
+Vector3<float> GetBaryCoords(Triangle& tri, Vector3<float>& o)
+{
 	Vector3<float> A = tri.A - tri.A;
 	Vector3<float> B = tri.B - tri.A;
 	Vector3<float> C = tri.C - tri.A;
@@ -254,10 +322,6 @@ bool RayTriangleIntersect(Ray ray, Triangle tri, Vector3<float>& hitPoint, Vecto
 
 	float gamma = 1.0 - alpha - beta; //Get gamma knowing that a+b+y = 1
 
-	outBary = Vector3<float>(alpha, beta, gamma);
-
-	if (alpha > 1.0f || beta > 1.0f || gamma > 1.0f || alpha < 0.0f || beta < 0.0f || gamma < 0.0f) return false;
-
-	return true;
+	return Vector3<float>(alpha, beta, gamma);
 }
 

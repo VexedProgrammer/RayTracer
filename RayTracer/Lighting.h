@@ -28,10 +28,10 @@ public:
 	PointLight() {};
 	~PointLight() {};
 
-	Vector3<float> Position = Vector3<float>(35, 10, 75);// Vector3<float>(40.0f, 40.0f, 70.0f);
-	//Vector3<float> Position = Vector3<float>(11, 40, 15);
+	//Vector3<float> Position = Vector3<float>(35, 10, 75);// Vector3<float>(40.0f, 40.0f, 70.0f);
+	Vector3<float> Position = Vector3<float>(55, 150, 110);
 	Vector3<float> LightColour = Vector3<float>(1.0f, 1.0f, 1.0f); //White
 
 	float Intensity = 1.0f;
-	float Radius = 150;
+	float Radius = 300;
 };
