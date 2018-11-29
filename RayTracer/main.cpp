@@ -13,7 +13,7 @@ struct Eye
 	Vector3<float> right = Vector3<float>(1, 0, 0);
 
 	float FOV = 90; // Degrees
-};
+}camera;
 struct Ray
 {
 	Vector3<float> origin;
@@ -83,8 +83,10 @@ int RenderImage(const char* fileName, PPM ppm);
 double deg2rad(double degrees);
 bool RayTriangleIntersect(Ray ray, Triangle tri, Vector3<float>& hitPoint, Vector3<float>& outNorm, Vector3<float>& outBary);
 Vector3<float> GetBaryCoords(Triangle& tri, Vector3<float>& o);
+Ray CreateCameraRay(int i, int j);
+void CreateImage(const char* fileName);
 //Variables
-Vector2<int> imageSize = Vector2<int>(512, 512);
+Vector2<int> imageSize = Vector2<int>(128, 128);
 Vector3<int> imageColour = Vector3<int>(255, 255, 192);
 vector<Triangle> Triangles;
 
@@ -104,50 +106,63 @@ int clampInt(int N, int minN, int maxN)
 	return N;
 }
 
-
+bool bColour = false;
+bool bAmbient = false;
+bool bDiffuse = false;
+bool bSpec = false;
+bool bShadows = false;
 
 
 int main()
 {
 	cout << "Hello RayTracer!" << endl;
 
-	Eye camera;
 	Triangles.push_back(Triangle());
 	//Floor
-	Vector3<float> A = Vector3<float>(-350, -20, 0);
-	Vector3<float> B = Vector3<float>(350, -20, 0);
-	Vector3<float> C = Vector3<float>(-350, -21, 500);
-	Vector3<float> D = Vector3<float>(350, -21, 500);
+	Vector3<float> A = Vector3<float>(-1000, -100.1f, 0);
+	Vector3<float> B = Vector3<float>(1000, -100.1f, 0);
+	Vector3<float> C = Vector3<float>(-1000, -100.f, 1000);
+	Vector3<float> D = Vector3<float>(1000, -100.f, 1000);
 	Triangle left = Triangle(A, D, C);
-	left.Mat.Shininess = 32.0f;
+	left.Mat.SpecInten = 0.0f;
+	left.Mat.dColour = Vector3<float>(0.8f, 0.0f, 0.0f);
 	Triangle right = Triangle(A, B, D);
-	right.Mat.Shininess = 32.0f;
+	right.Cc = left.Bc;
+	right.Bc = left.Ac;
+	right.Mat.SpecInten = 0.0f;
+	right.Mat.dColour = Vector3<float>(0.8f, 0.0f, 0.0f);
 	Triangles.push_back(left);
 	Triangles.push_back(right);
 
+	bColour = true;
+	CreateImage("BaryColour.ppm");
+	bColour = false;
+	bAmbient = true;
+	CreateImage("Ambient.ppm");
+	bAmbient = false;
+	bDiffuse = true;
+	CreateImage("Diffuse.ppm");
+	bDiffuse = false;
+	bSpec = true;
+	CreateImage("Specular.ppm");
+	bDiffuse = true;
+	bAmbient = true;
+	CreateImage("Blinn.ppm");
+	bShadows = true;
+	CreateImage("Shadows.ppm");
+	//system("pause");
+	return 0;
+}
+void CreateImage(const char* fileName)
+{
 	PointLight light;
 	PPM image = PPM("P3", imageSize.x, imageSize.y, 255);
-	float aspect = imageSize.x / imageSize.y;
+	
 
 	for (unsigned int j = 0; j < imageSize.y; ++j)
 	{
 		for (unsigned int i = 0; i < imageSize.x; ++i)
 		{
-
-			Vector3<float> viewDir = (camera.forward);// -camera.position);
-			Vector3<float> U = -viewDir.Cross(camera.up);
-			Vector3<float> V = U.Cross(viewDir);
-			float viewWidth = tan(deg2rad(camera.FOV /2));
-			float viewHeight = aspect * viewWidth;
-			
-			Vector3<float> viewCorner = camera.position + (camera.forward - V * viewHeight - U * viewWidth);
-
-			Vector3<float> xVec = (U * 2 * viewWidth) / imageSize.x; //  U * (2 * (i / imageSize.x))*viewWidth;//
-			Vector3<float> yVec = (V * 2 * viewHeight) / imageSize.y; //  V * (2 * (j / imageSize.y))*viewHeight;//
-			Vector3<float> viewPoint = viewCorner + (xVec * i) + (yVec * j);
-			Ray ray = Ray(camera.position, (viewPoint - camera.position), 100.0f);
-
-
 			double fragDist = 9999999;
 			Triangle* tri = nullptr;
 			Vector3<float> closeBary = Vector3<float>(0, 0, 0);
@@ -158,7 +173,7 @@ int main()
 				Vector3<float> bary = Vector3<float>(0, 0, 0);
 				Vector3<float> hitPoint = Vector3<float>(0, 0, 0);
 				Vector3<float> triNorm = Vector3<float>(0, 0, 0);
-				if (RayTriangleIntersect(ray, Triangles[t], hitPoint, triNorm, bary))
+				if (RayTriangleIntersect(CreateCameraRay(i, j), Triangles[t], hitPoint, triNorm, bary))
 				{
 					Vector3<float> hitVec = hitPoint - camera.position;
 					float dist = hitVec.Magnitude();
@@ -176,27 +191,37 @@ int main()
 			if (tri != nullptr)
 			{
 				Vector3<float> Ambient = (AmbientColour*AmbientIntensity);
-				Vector3<float> colour = Ambient;// Vector3<float>(test.Ac * bary.x + test.Bc * bary.y + test.Cc * bary.z);
+				Vector3<float> colour = Vector3<float>(0, 0, 0);
+
+				if(bAmbient)
+					colour = Ambient;
+				else if(bColour)
+					colour = Vector3<float>(tri->Ac * closeBary.x + tri->Bc * closeBary.y + tri->Cc * closeBary.z)/255;
+
 				Vector3<float> lightVec = (closeHitPoint - light.Position);
 
 				float dist = lightVec.Magnitude();
 				lightVec = lightVec / dist;
 
-				Vector3<float> shadowVec = (light.Position - closeHitPoint);
-				shadowVec = shadowVec / shadowVec.Magnitude();
-				Ray shadowRay = Ray(closeHitPoint, shadowVec, 100.f);
+				//Shadows
 				bool shadow = false;
-				for (unsigned int t = 0; t < Triangles.size(); t++)
-				{
-					if (tri == &Triangles[t]) continue;
 
-					Vector3<float> bary = Vector3<float>(0, 0, 0);
-					Vector3<float> hitPoint = Vector3<float>(0, 0, 0);
-					Vector3<float> triNorm = Vector3<float>(0, 0, 0);
-					if (RayTriangleIntersect(shadowRay, Triangles[t], hitPoint, triNorm, bary))
+				if (bShadows)
+				{
+					Vector3<float> shadowVec = (light.Position - closeHitPoint);
+					shadowVec = shadowVec / shadowVec.Magnitude();
+					Ray shadowRay = Ray(closeHitPoint, shadowVec, 100.f);
+
+					for (unsigned int t = 0; t < Triangles.size(); t++)
 					{
-						shadow = true;
-						break;
+						if (tri == &Triangles[t]) continue;
+
+						Vector3<float> temp = Vector3<float>(0, 0, 0);
+						if (RayTriangleIntersect(shadowRay, Triangles[t], temp, temp, temp))
+						{
+							shadow = true;
+							break;
+						}
 					}
 				}
 				if (!shadow)
@@ -206,7 +231,7 @@ int main()
 					lambertian = clampFloat(lambertian, 0, lambertian);
 					double spec = 0.0;
 
-					if (lambertian > 0.0f)
+					if (lambertian > 0.0f && bSpec)
 					{
 						Vector3<float> viewVec = (closeHitPoint);
 
@@ -219,12 +244,16 @@ int main()
 
 
 					Vector3<float> Diffuse = (tri->Mat.dColour * lambertian * light.LightColour * light.Intensity);
-					Vector3<float> Specular = (tri->Mat.sColour * spec * light.LightColour * light.Intensity);
+					Vector3<float> Specular = (tri->Mat.sColour * spec * light.LightColour * light.Intensity) * tri->Mat.SpecInten;
 					//if(dist < light.Radius)
-						colour += Diffuse + Specular;
+					if (bDiffuse) {
+						colour += Diffuse;
+					}
+
+					colour += Specular;
 				}
 				colour *= 255;
-				
+
 				image.values[j][i].x = clampInt(colour.x, 0, 255);
 				image.values[j][i].y = clampInt(colour.y, 0, 255);
 				image.values[j][i].z = clampInt(colour.z, 0, 255);
@@ -235,11 +264,26 @@ int main()
 			}
 		}
 	}
-	
-	RenderImage("test.ppm", image);
 
-	//system("pause");
-	return 0;
+	RenderImage(fileName, image);
+}
+Ray CreateCameraRay(int i, int j)
+{
+	float aspect = imageSize.x / imageSize.y;
+	Vector3<float> viewDir = (camera.forward);// -camera.position);
+	Vector3<float> U = -viewDir.Cross(camera.up);
+	Vector3<float> V = U.Cross(viewDir);
+	float viewWidth = tan(deg2rad(camera.FOV / 2));
+	float viewHeight = aspect * viewWidth;
+
+	Vector3<float> viewCorner = camera.position + (camera.forward - V * viewHeight - U * viewWidth);
+
+	Vector3<float> xVec = (U * 2 * viewWidth) / imageSize.x; //  U * (2 * (i / imageSize.x))*viewWidth;//
+	Vector3<float> yVec = (V * 2 * viewHeight) / imageSize.y; //  V * (2 * (j / imageSize.y))*viewHeight;//
+	Vector3<float> viewPoint = viewCorner + (xVec * i) + (yVec * j);
+	Ray ray = Ray(camera.position, (viewPoint - camera.position), 100.0f);
+
+	return ray;
 }
 double deg2rad(double degrees) {
 	return degrees * 3.14159265359 / 180.0;
