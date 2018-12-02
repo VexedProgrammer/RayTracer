@@ -30,7 +30,7 @@ public:
 	~PointLight() {};
 
 	//Vector3<float> Position = Vector3<float>(35, 10, 75);// Vector3<float>(40.0f, 40.0f, 70.0f);
-	Vector3<float> Position = Vector3<float>(85, 150, 90);
+	Vector3<float> Position = Vector3<float>(100, 150, 70);
 	Vector3<float> LightColour = Vector3<float>(1.0f, 1.0f, 1.0f); //White
 
 	float Intensity = 1.0f;
